@@ -118,37 +118,32 @@ def get_model():
     model.add(Activation('softmax'))
     return model
 
-def scheduler(epoch):
-    if epoch < 150:
-        model.lr.set_value(0.1)
-    elif epoch < 250:
-        model.lr.set_value(.01)
-    else:
-        model.lr.set_value(0.001)
-    return model.lr.get_value()
-
-change_lr = LearningRateScheduler(scheduler)
-
 model = get_model()
 initial_weights = model.get_weights()
 prev_best_loss = np.inf
 transform_kw_val = transform_gap
 best_loss_map = {}
+num_train_batches = -(-x_train.shape[0] // batch_size)
+eval_batch_size = 100
+num_eval_batches = -(-x_test.shape[0] // eval_batch_size)
 while True:
     model.set_weights(initial_weights)
     print(transform_kw, transform_kw_val)
-    opt = keras.optimizers.SGD(lr=0.1, momentum=0.9)
+    opt = keras.optimizers.Adam(lr=1e-3)
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
     
     gen_args = {'featurewise_center': True, 'samplewise_center': True, 
-                transform_kw: transform_kw_val, 'horizontal_flip': False}
+                transform_kw: transform_kw_val, 'horizontal_flip': False, 
+                'fill_mode': 'reflect'}
     datagen = ImageDataGenerator(**gen_args)
     datagen.fit(x_train)
-    hist = model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
-            steps_per_epoch=-(-x_train.shape[0] // batch_size),
+    val_generator = datagen.flow(x_test, y_test, batch_size=eval_batch_size)
+    hist = model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size), 
+            steps_per_epoch=num_train_batches,
             epochs=epochs,
-            validation_data=(x_test, y_test),
-            shuffle=True)
+            validation_data=val_generator,
+            validation_steps=num_eval_batches,
+            max_queue_size=40, workers=4)
     best_val_loss = min(hist.history['val_loss'])
     best_loss_map[transform_kw_val] = best_val_loss
     print('previous best loss', prev_best_loss)
