@@ -21,7 +21,7 @@ from collections import defaultdict
 
 import keras
 from keras import backend as K
-K.set_image_dim_ordering('th')
+K.set_image_dim_ordering('tf')
 from keras.datasets import cifar10
 from keras.preprocessing.image import ImageDataGenerator
 (x_train, y_train), (x_test, y_test) = cifar10.load_data()
@@ -68,12 +68,10 @@ transform_test = transforms.Compose([
 
 #trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
 trainset = NumpyDataset(x_train, y_train, transform=transform_train)
-print(trainset)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
 
 #testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
 testset = NumpyDataset(x_test, y_test, transform=transform_test)
-print(testset)
 testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
 
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')

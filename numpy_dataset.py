@@ -15,13 +15,14 @@ class NumpyDataset(data.Dataset):
 
     def __init__(self, img_np, target_np, transform=None, target_transform=None):
         assert img_np.shape[0] == target_np.shape[0]
-        self.img_tensor = torch.from_numpy(img_np).float()
-        self.target_tensor = torch.from_numpy(target_np)
+        self.img_tensor = torch.from_numpy(img_np)
+        self.target_tensor = torch.from_numpy(target_np).long()
         self.transform = transform
+        self.target_transform = target_transform
 
     def __getitem__(self, index):
         img, target = self.img_tensor[index], self.target_tensor[index]
-        img = Image.fromarray(img.numpy(), mode='L')
+        img = Image.fromarray(img.numpy())
 
         if self.transform is not None:
             img = self.transform(img)
