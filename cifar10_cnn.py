@@ -20,6 +20,7 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
+import json
 import argparse
 import time
 
@@ -28,20 +29,31 @@ if K.backend()=='tensorflow':
     cfg.gpu_options.allow_growth = True
     K.set_session(K.tf.Session(config=cfg))
 
+kw_map = {'height': 'height_shift_range', 'width': 'width_shift_range', 'rotation': 'rotation_range', 
+          'zoom': 'zoom_range', 'shear': 'shear_range'}
+gap_map = {'height': 0.1, 'width': 0.1, 'rotation': 30, 'zoom': 0.1, 'shear': 0.1}
 parser = argparse.ArgumentParser(description='Data augmentation parameter search')
 parser.add_argument('--batch-size', type=int, default=128, help='batch size')
 parser.add_argument('--epochs', type=int, default=200, help='number of epochs to run')
 parser.add_argument('--subset', type=float, default=1, help='subset of training data to use')
 randomhash = ''.join(str(time.time()).split('.'))
 parser.add_argument('--result', type=str,  default=randomhash, help='path to save the final model')
-parser.add_argument('--transform', type=str, choices=['height', 'width', 'rotation', 'zoom'], 
+parser.add_argument('--transform', type=str, choices=['height', 'width', 'rotation', 'zoom', 'shear'], 
                     default='width', help='type of transform to apply')
+parser.add_argument('--gap', type=float, default=None, help='gap with which to try transform')
 args = parser.parse_args()
 
 batch_size = args.batch_size
 epochs = args.epochs
 num_classes = 10
 save_dir = os.path.join(os.getcwd(), args.result)
+assert not(os.path.exists(save_dir)), "result dir already exists!"
+os.makedirs(save_dir)
+transform_kw = kw_map[args.transform]
+if args.gap is None:
+    transform_gap = gap_map[args.transform]
+else:
+    transform_gap = args.gap
 model_name = 'keras_cifar10_trained_model.h5'
 
 def unison_shuffled_copies(a, b):
@@ -60,88 +72,85 @@ print('x_train shape:', x_train.shape)
 print(x_train.shape[0], 'train samples')
 print(x_test.shape[0], 'test samples')
 
-# Convert class vectors to binary class matrices.
-y_train = keras.utils.to_categorical(y_train, num_classes)
-y_test = keras.utils.to_categorical(y_test, num_classes)
-
-model = Sequential()
-
-model.add(Conv2D(32, (3, 3), padding='same',
-                 input_shape=x_train.shape[1:]))
-model.add(Activation('relu'))
-model.add(Conv2D(32, (3, 3)))
-model.add(Activation('relu'))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.25))
-
-model.add(Conv2D(64, (3, 3), padding='same'))
-model.add(Activation('relu'))
-model.add(Conv2D(64, (3, 3)))
-model.add(Activation('relu'))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.25))
-
-model.add(Flatten())
-model.add(Dense(512))
-model.add(Activation('relu'))
-model.add(Dropout(0.5))
-model.add(Dense(num_classes))
-model.add(Activation('softmax'))
-
-# initiate Adam optimizer
-opt = keras.optimizers.Adam(lr=3e-4, decay=1e-6)
-
-# Let's train the model using Adam
-model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
-
 x_train = x_train.astype('float32')
 x_test = x_test.astype('float32')
 x_train /= 255
 x_test /= 255
+    
+# Convert class vectors to binary class matrices.
+y_train = keras.utils.to_categorical(y_train, num_classes)
+y_test = keras.utils.to_categorical(y_test, num_classes)
 
-print('Not using data augmentation.')
-datagen = ImageDataGenerator(featurewise_center=True, 
-                             samplewise_center=True)
-# Compute (std, mean) quantities required for feature-wise normalization
-datagen.fit(x_train)
-hist = model.fit(x_train, y_train,
-        batch_size=batch_size,
-        epochs=epochs,
-        validation_data=(x_test, y_test),
-        shuffle=True)
-print(hist.history.keys())
+def get_model():
+    model = Sequential()
+    
+    model.add(Conv2D(32, (5, 5), padding='same',
+                     input_shape=x_train.shape[1:]))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+    
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    model.add(Conv2D(128, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(128, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
 
-# Save model and weights
-if not os.path.isdir(save_dir):
-    os.makedirs(save_dir)
-train_metrics = {k: hist.history[k] for k in ('acc','loss')}
-pd_train_metrics = pd.DataFrame(train_metrics)
-pd_train_metrics.to_csv(os.path.join(save_dir, 'train_metrics.csv'))
+    model.add(Flatten())
+    model.add(Dense(512))
+    model.add(Activation('relu'))
+    model.add(Dense(num_classes))
+    model.add(Activation('softmax'))
+    return model
 
-eval_metrics = {k: hist.history[k] for k in ('val_acc', 'val_loss')}
-pd_eval_metrics = pd.DataFrame(eval_metrics)
-pd_eval_metrics.to_csv(os.path.join(save_dir, 'eval_metrics.csv'))
+prev_best_loss = np.inf
+transform_kw_val = transform_gap
+best_loss_map = {}
+while True:
+    print((transform_kw, transform_kw_val))
+    model = get_model()
+    opt = keras.optimizers.Adam(lr=3e-4, decay=1e-6)
+    model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
+    
+    gen_args = {'featurewise_center': True, 'samplewise_center': True, 
+                transform_kw: transform_kw_val, 'horizontal_flip': False}
+    datagen = ImageDataGenerator(**gen_args)
+    datagen.fit(x_train)
 
-model_path = os.path.join(save_dir, model_name)
-model.save(model_path)
-print('Saved trained model at %s ' % model_path)
+    hist = model.fit(x_train, y_train,
+            batch_size=batch_size,
+            epochs=epochs,
+            validation_data=(x_test, y_test),
+            shuffle=True)
+    best_val_loss = min(hist.history['val_loss'])
+    best_loss_map[transform_kw_val] = best_val_loss
+    if prev_best_loss < best_val_loss:
+        break
+    prev_best_loss = best_val_loss
+    
+    # Save model and weights
+    sub_dir = os.path.join(save_dir, str(transform_kw_val))
+    os.makedirs(sub_dir)
+    pd_metrics = pd.DataFrame(hist.history)
+    pd_metrics.to_csv(os.path.join(sub_dir, 'metrics.csv'))
+    
+    model_path = os.path.join(sub_dir, model_name)
+    model.save(model_path)
+    print('Saved trained model at %s ' % model_path)
+    if transform_gap == 0:
+        break
+    transform_kw_val += transform_gap
 
-# Load label names to use in prediction results
-label_list_path = 'datasets/cifar-10-batches-py/batches.meta'
-
-keras_dir = os.path.expanduser(os.path.join('~', '.keras'))
-datadir_base = os.path.expanduser(keras_dir)
-if not os.access(datadir_base, os.W_OK):
-    datadir_base = os.path.join('/tmp', '.keras')
-label_list_path = os.path.join(datadir_base, label_list_path)
-
-with open(label_list_path, mode='rb') as f:
-    labels = pickle.load(f)
-
-# Evaluate model with test data set and share sample prediction results
-evaluation = model.evaluate_generator(datagen.flow(x_test, y_test,
-                                      batch_size=batch_size),
-                                      steps=x_test.shape[0] // batch_size)
-
-print('Model Accuracy = %.2f' % (evaluation[1]))
-
+config_str = json.dumps(best_loss_map)
+config_file = os.path.join(save_dir, 'config')
+config_file_object = open(config_file, 'w')
+config_file_object.write(config_str)
+config_file_object.close()

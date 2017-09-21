@@ -34,7 +34,7 @@ train_datagen = ImageDataGenerator(featurewise_center=True,
 train_datagen.fit(x_train)
 test_datagen = ImageDataGenerator(featurewise_center=True, 
                                   featurewise_std_normalization=True)
-test_datagen.fit(x_test)
+test_datagen.fit(x_train)
 
 from models import *
 from utils import progress_bar
