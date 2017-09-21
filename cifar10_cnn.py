@@ -6,8 +6,18 @@ GPU run command with Theano backend (with TensorFlow, the GPU is automatically u
 It gets down to 0.65 test logloss in 25 epochs, and down to 0.55 after 50 epochs.
 (it's still underfitting at that point, though).
 '''
-
 from __future__ import print_function
+import numpy as np
+np.random.seed(1337)
+import tensorflow as tf
+tf.set_random_seed(1337)
+import os
+import pickle
+import pandas as pd
+import json
+import argparse
+import time
+
 import keras
 from keras.datasets import cifar10
 from keras.preprocessing.image import ImageDataGenerator
@@ -16,18 +26,11 @@ from keras.layers import Dense, Dropout, Activation, Flatten
 from keras.layers import Conv2D, MaxPooling2D
 from keras import backend as K
 
-import os
-import pickle
-import numpy as np
-import pandas as pd
-import json
-import argparse
-import time
-
 if K.backend()=='tensorflow':
     cfg = K.tf.ConfigProto()
     cfg.gpu_options.allow_growth = True
-    K.set_session(K.tf.Session(config=cfg))
+    sess = tf.Session(graph=tf.get_default_graph(), config=cfg)
+    K.set_session(sess)
 
 kw_map = {'height': 'height_shift_range', 'width': 'width_shift_range', 'rotation': 'rotation_range', 
           'zoom': 'zoom_range', 'shear': 'shear_range'}
@@ -115,7 +118,7 @@ prev_best_loss = np.inf
 transform_kw_val = transform_gap
 best_loss_map = {}
 while True:
-    print((transform_kw, transform_kw_val))
+    print(transform_kw, transform_kw_val)
     model = get_model()
     opt = keras.optimizers.Adam(lr=3e-4, decay=1e-6)
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
@@ -132,9 +135,8 @@ while True:
             shuffle=True)
     best_val_loss = min(hist.history['val_loss'])
     best_loss_map[transform_kw_val] = best_val_loss
-    if prev_best_loss < best_val_loss:
-        break
-    prev_best_loss = best_val_loss
+    print('previous best loss', prev_best_loss)
+    print('current best loss', best_val_loss)
     
     # Save model and weights
     sub_dir = os.path.join(save_dir, str(transform_kw_val))
@@ -145,11 +147,23 @@ while True:
     model_path = os.path.join(sub_dir, model_name)
     model.save(model_path)
     print('Saved trained model at %s ' % model_path)
+    print('')
+
+    if prev_best_loss < best_val_loss:
+        break
+    prev_best_loss = best_val_loss
+
     if transform_gap == 0:
         break
     transform_kw_val += transform_gap
+print('Best loss values for different ranges of ' + args.transform + ' transform')
+best_loss_list = [(transform_kw, 'best validation loss')]
+best_loss_list = best_loss_list + best_loss_map.items()
+for ele1,ele2 in best_loss_list:
+    print("{:<24}{:<48}".format(ele1,ele2))
+print('')
 
-config_str = json.dumps(best_loss_map)
+config_str = json.dumps(best_loss_map) + '\n'
 config_file = os.path.join(save_dir, 'config')
 config_file_object = open(config_file, 'w')
 config_file_object.write(config_str)
