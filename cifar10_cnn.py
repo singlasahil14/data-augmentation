@@ -22,6 +22,7 @@ import argparse
 import time
 
 import keras
+from keras.callbacks import LearningRateScheduler
 from keras.datasets import cifar10
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Sequential
@@ -117,6 +118,17 @@ def get_model():
     model.add(Activation('softmax'))
     return model
 
+def scheduler(epoch):
+    if epoch < 150:
+        model.lr.set_value(0.1)
+    elif epoch < 250:
+        model.lr.set_value(.01)
+    else:
+        model.lr.set_value(0.001)
+    return model.lr.get_value()
+
+change_lr = LearningRateScheduler(scheduler)
+
 model = get_model()
 initial_weights = model.get_weights()
 prev_best_loss = np.inf
@@ -125,16 +137,15 @@ best_loss_map = {}
 while True:
     model.set_weights(initial_weights)
     print(transform_kw, transform_kw_val)
-    opt = keras.optimizers.Adam(lr=1e-3, decay=1e-6)
+    opt = keras.optimizers.SGD(lr=0.1, momentum=0.9)
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
     
     gen_args = {'featurewise_center': True, 'samplewise_center': True, 
                 transform_kw: transform_kw_val, 'horizontal_flip': False}
     datagen = ImageDataGenerator(**gen_args)
     datagen.fit(x_train)
-
-    hist = model.fit(x_train, y_train,
-            batch_size=batch_size,
+    hist = model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
+            steps_per_epoch=-(-x_train.shape[0] // batch_size),
             epochs=epochs,
             validation_data=(x_test, y_test),
             shuffle=True)
