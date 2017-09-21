@@ -126,6 +126,8 @@ best_loss_map = {}
 num_train_batches = -(-x_train.shape[0] // batch_size)
 eval_batch_size = 100
 num_eval_batches = -(-x_test.shape[0] // eval_batch_size)
+val_datagen = ImageDataGenerator(featurewise_center=True, samplewise_center=True)
+val_datagen.fit(x_train)
 while True:
     model.set_weights(initial_weights)
     print(transform_kw, transform_kw_val)
@@ -137,7 +139,7 @@ while True:
                 'fill_mode': 'reflect'}
     datagen = ImageDataGenerator(**gen_args)
     datagen.fit(x_train)
-    val_generator = datagen.flow(x_test, y_test, batch_size=eval_batch_size)
+    val_generator = val_datagen.flow(x_test, y_test, batch_size=eval_batch_size)
     hist = model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size), 
             steps_per_epoch=num_train_batches,
             epochs=epochs,
