@@ -9,9 +9,12 @@ It gets down to 0.65 test logloss in 25 epochs, and down to 0.55 after 50 epochs
 from __future__ import print_function
 import numpy as np
 np.random.seed(1337)
+import random as rnd
+rnd.seed(1337)
 import tensorflow as tf
 tf.set_random_seed(1337)
 import os
+os.environ['PYTHONHASHSEED'] = '0'
 import pickle
 import pandas as pd
 import json
@@ -27,7 +30,7 @@ from keras.layers import Conv2D, MaxPooling2D
 from keras import backend as K
 
 if K.backend()=='tensorflow':
-    cfg = K.tf.ConfigProto()
+    cfg = K.tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
     cfg.gpu_options.allow_growth = True
     sess = tf.Session(graph=tf.get_default_graph(), config=cfg)
     K.set_session(sess)
@@ -37,7 +40,7 @@ kw_map = {'height': 'height_shift_range', 'width': 'width_shift_range', 'rotatio
 gap_map = {'height': 0.1, 'width': 0.1, 'rotation': 30, 'zoom': 0.1, 'shear': 0.1}
 parser = argparse.ArgumentParser(description='Data augmentation parameter search')
 parser.add_argument('--batch-size', type=int, default=128, help='batch size')
-parser.add_argument('--epochs', type=int, default=200, help='number of epochs to run')
+parser.add_argument('--epochs', type=int, default=350, help='number of epochs to run')
 parser.add_argument('--subset', type=float, default=1, help='subset of training data to use')
 randomhash = ''.join(str(time.time()).split('.'))
 parser.add_argument('--result', type=str,  default=randomhash, help='path to save the final model')
@@ -114,13 +117,15 @@ def get_model():
     model.add(Activation('softmax'))
     return model
 
+model = get_model()
+initial_weights = model.get_weights()
 prev_best_loss = np.inf
 transform_kw_val = transform_gap
 best_loss_map = {}
 while True:
+    model.set_weights(initial_weights)
     print(transform_kw, transform_kw_val)
-    model = get_model()
-    opt = keras.optimizers.Adam(lr=3e-4, decay=1e-6)
+    opt = keras.optimizers.Adam(lr=1e-3, decay=1e-6)
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
     
     gen_args = {'featurewise_center': True, 'samplewise_center': True, 
