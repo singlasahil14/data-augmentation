@@ -28,6 +28,7 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation, Flatten
 from keras.layers import Conv2D, MaxPooling2D
+from keras.utils import Sequence
 from keras import backend as K
 
 if K.backend()=='tensorflow':
@@ -128,9 +129,11 @@ eval_batch_size = 100
 num_eval_batches = -(-x_test.shape[0] // eval_batch_size)
 val_datagen = ImageDataGenerator(featurewise_center=True, samplewise_center=True)
 val_datagen.fit(x_train)
+val_generator = val_datagen.flow(x_test, y_test, batch_size=eval_batch_size)
 while True:
     model.set_weights(initial_weights)
-    print(transform_kw, transform_kw_val)
+    if not(transform_gap == 0):
+        print(transform_kw, transform_kw_val)
     opt = keras.optimizers.Adam(lr=1e-3)
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
     
@@ -139,21 +142,23 @@ while True:
                 'fill_mode': 'reflect'}
     datagen = ImageDataGenerator(**gen_args)
     datagen.fit(x_train)
-    val_generator = val_datagen.flow(x_test, y_test, batch_size=eval_batch_size)
     hist = model.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size), 
             steps_per_epoch=num_train_batches,
             epochs=epochs,
             validation_data=val_generator,
             validation_steps=num_eval_batches,
-            max_queue_size=40, workers=4)
+            max_queue_size=100*batch_size, workers=3)
     best_val_loss = min(hist.history['val_loss'])
     best_loss_map[transform_kw_val] = best_val_loss
     print('previous best loss', prev_best_loss)
     print('current best loss', best_val_loss)
     
     # Save model and weights
-    sub_dir = os.path.join(save_dir, str(transform_kw_val))
-    os.makedirs(sub_dir)
+    if not(transform_gap == 0):
+        sub_dir = os.path.join(save_dir, str(transform_kw_val))
+        os.makedirs(sub_dir)
+    else:
+        sub_dir = save_dir
     pd_metrics = pd.DataFrame(hist.history)
     pd_metrics.to_csv(os.path.join(sub_dir, 'metrics.csv'))
     
@@ -166,12 +171,16 @@ while True:
         break
     prev_best_loss = best_val_loss
 
-    if transform_gap == 0:
+    if transform_gap == 0.:
         break
     transform_kw_val += transform_gap
-print('Best loss values for different ranges of ' + args.transform + ' transform')
-best_loss_list = [(transform_kw, 'best validation loss')]
-best_loss_list = best_loss_list + best_loss_map.items()
+if not(transform_gap == 0):
+    print_str = 'Best loss values for different ranges of ' + args.transform + ' transform'
+    best_loss_list = [(transform_kw, 'best validation loss')] + list(best_loss_map.items())
+else:
+    print_str = 'Best loss value for no transform'
+    best_loss_list = [('No transform', 'best validation loss')] + list(best_loss_map.items())
+print(print_str)
 for ele1,ele2 in best_loss_list:
     print("{:<24}{:<48}".format(ele1,ele2))
 print('')
